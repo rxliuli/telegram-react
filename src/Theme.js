@@ -10,9 +10,9 @@ import blue from '@material-ui/core/colors/blue';
 import createMuiTheme from '@material-ui/core/styles/createMuiTheme';
 import { ThemeProvider as MuiThemeProvider } from '@material-ui/core/styles';
 import { StylesProvider } from '@material-ui/core/styles';
-import { getDisplayName } from './Utils/HOC';
-import ApplicationStore from './Stores/ApplicationStore';
 import { getBadgeSelectedColor } from './Utils/Color';
+import { getDisplayName } from './Utils/HOC';
+import AppStore from './Stores/ApplicationStore';
 
 function updateLightTheme(theme) {
     // const root = document.querySelector(':root');
@@ -34,7 +34,8 @@ function updateLightTheme(theme) {
     style.setProperty('--z-index-modal', theme.zIndex.modal);
 
     style.setProperty('--color-accent-main', theme.palette.primary.main);
-    style.setProperty('--color-accent-main22', theme.palette.primary.main + '44');
+    style.setProperty('--color-accent-main44', theme.palette.primary.main + '44');
+    style.setProperty('--color-accent-main88', theme.palette.primary.main + '88');
     style.setProperty('--color-accent-dark', theme.palette.primary.dark);
     style.setProperty('--color-accent-light', theme.palette.primary.light);
     style.setProperty('--color-grey700', theme.palette.grey[700]);
@@ -52,6 +53,9 @@ function updateLightTheme(theme) {
     style.setProperty('--badge-item-selected', getBadgeSelectedColor(theme.palette.primary.main));
 
     style.setProperty('--online-indicator', '#0AC630');
+
+    style.setProperty('--message-keyboard-button', '#00000033');
+    style.setProperty('--message-keyboard-button-hover', '#00000022');
 
     style.setProperty('--message-service-color', '#FFFFFF');
     style.setProperty('--message-service-background', '#00000033');
@@ -118,7 +122,8 @@ function updateDarkTheme(theme) {
     style.setProperty('--z-index-modal', theme.zIndex.modal);
 
     style.setProperty('--color-accent-main', theme.palette.primary.main);
-    style.setProperty('--color-accent-main22', theme.palette.primary.main + '44');
+    style.setProperty('--color-accent-main44', theme.palette.primary.main + '44');
+    style.setProperty('--color-accent-main88', theme.palette.primary.main + '88');
     style.setProperty('--color-accent-dark', theme.palette.primary.dark);
     style.setProperty('--color-accent-light', theme.palette.primary.light);
     style.setProperty('--color-grey700', theme.palette.grey[700]);
@@ -136,6 +141,9 @@ function updateDarkTheme(theme) {
     style.setProperty('--badge-item-selected', getBadgeSelectedColor(theme.palette.primary.main));
 
     style.setProperty('--online-indicator', '#0AC630');
+
+    style.setProperty('--message-keyboard-button', '#303030');
+    style.setProperty('--message-keyboard-button-hover', '#30303088');
 
     style.setProperty('--message-service-color', '#FFFFFF');
     style.setProperty('--message-service-background', '#303030');
@@ -182,7 +190,22 @@ function updateDarkTheme(theme) {
     style.setProperty('--message-out-control-border-hover', theme.palette.primary.main);
 }
 
+function getSystemThemeType() {
+    if (window.matchMedia) {
+        if(window.matchMedia('(prefers-color-scheme: dark)').matches){
+            return 'dark';
+        } else {
+            return 'light';
+        }
+    }
+    return 'light';
+}
+
 function createTheme(type, primary) {
+    if (type === 'default') {
+        type = getSystemThemeType();
+    }
+
     let MuiTouchRipple = {};
     let action = {};
     if (type === 'light') {
@@ -285,7 +308,16 @@ function createTheme(type, primary) {
                     paddingBottom: 10
                 }
             },
-            MuiTouchRipple
+            MuiTouchRipple,
+            MuiSnackbarContent: {
+                root: {
+                    flexWrap: 'nowrap',
+                    fontSize: 'inherit'
+                },
+                message: {
+                    maxWidth: 512
+                }
+            }
         }
     });
 
@@ -314,14 +346,34 @@ function withTheme(WrappedComponent) {
             const theme = createTheme(type, primary);
 
             this.state = { theme };
+
+            if (window.matchMedia) {
+                const colorSchemeQuery = window.matchMedia('(prefers-color-scheme: dark)');
+                colorSchemeQuery.addEventListener('change', this.onSystemThemeChange);
+            }
         }
 
+        onSystemThemeChange = () => {
+            let { type, primary } = { type: 'light', primary: { main: '#50A2E9' } };
+            try {
+                const themeOptions = JSON.parse(localStorage.getItem('themeOptions'));
+                if (themeOptions && themeOptions.type !== 'default') {
+                    return;
+                }
+                type = themeOptions.type;
+                primary = themeOptions.primary;
+            } catch {}
+
+            const theme = createTheme(type, primary);
+            this.setState({ theme }, () => AppStore.emit('clientUpdateThemeChange'));
+        };
+
         componentDidMount() {
-            ApplicationStore.on('clientUpdateThemeChanging', this.onClientUpdateThemeChanging);
+            AppStore.on('clientUpdateThemeChanging', this.onClientUpdateThemeChanging);
         }
 
         componentWillUnmount() {
-            ApplicationStore.off('clientUpdateThemeChanging', this.onClientUpdateThemeChanging);
+            AppStore.off('clientUpdateThemeChanging', this.onClientUpdateThemeChanging);
         }
 
         onClientUpdateThemeChanging = update => {
@@ -330,7 +382,7 @@ function withTheme(WrappedComponent) {
             const theme = createTheme(type, primary);
             localStorage.setItem('themeOptions', JSON.stringify({ type, primary }));
 
-            this.setState({ theme }, () => ApplicationStore.emit('clientUpdateThemeChange'));
+            this.setState({ theme }, () => AppStore.emit('clientUpdateThemeChange'));
         };
 
         render() {

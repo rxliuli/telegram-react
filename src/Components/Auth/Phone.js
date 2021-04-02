@@ -222,6 +222,9 @@ class Phone extends React.Component {
         if (!code) return;
 
         const [phone, country] = this.getPhoneCountry(code);
+        if (this.state.phone) {
+            return;
+        }
 
         this.setState({ phone, country });
     };
@@ -354,7 +357,7 @@ class Phone extends React.Component {
 
         const { phone, country } = this.state;
 
-        const prevPhone = country ? phone.replace(country.phone, '') : phone;
+        const prevPhone = (country ? phone.replace(country.phone, '') : phone) || '';
         const nextPhone = nextCountry.phone + ' ' + prevPhone.trimStart();
 
         this.setState({ country: nextCountry, phone: nextPhone }, () => {
@@ -436,14 +439,14 @@ class Phone extends React.Component {
                     <span>{title}</span>
                     {connecting && <HeaderProgress />}
                 </Typography>
-                <Typography variant='body1' className='auth-subtitle' style={{ width: 254 }}>
+                <Typography variant='body1' className='auth-subtitle' style={{ width: 264 }}>
                     {t('StartText')}
                 </Typography>
                 <Autocomplete
                     debug={false}
                     id='country-select'
                     noOptionsText={t('NoResult')}
-                    options={data}
+                    options={data || []}
                     disabled={loading}
                     autoHighlight
                     getOptionLabel={option => option.name}

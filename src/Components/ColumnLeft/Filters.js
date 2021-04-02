@@ -11,10 +11,11 @@ import { withTranslation } from 'react-i18next';
 import classNames from 'classnames';
 import Animator from '../../Utils/Animatior';
 import { clamp, getFirstLetter, throttle } from '../../Utils/Common';
+import { openChatList } from '../../Actions/Chat';
 import AppStore from '../../Stores/ApplicationStore';
 import CacheStore from '../../Stores/CacheStore';
 import FilterStore from '../../Stores/FilterStore';
-import TdLibController from '../../Controllers/TdLibController';
+import LocalizationStore from '../../Stores/LocalizationStore';
 import './Filters.css';
 
 class Filters extends React.Component {
@@ -38,22 +39,59 @@ class Filters extends React.Component {
     }
 
     componentDidMount() {
-        window.addEventListener('resize', this.onWindowResize);
+        this.observeResize();
         AppStore.on('clientUpdateCacheLoaded', this.onClientUpdateCacheLoaded);
         AppStore.on('clientUpdatePageWidth', this.onClientUpdatePageWidth);
         FilterStore.on('clientUpdateChatList', this.onClientUpdateChatList);
         FilterStore.on('updateChatFilters', this.onUpdateChatFilters);
+        LocalizationStore.on('clientUpdateLanguageChange', this.onClientUpdateLanguageChange);
 
         this.setSelection();
     }
 
+    componentDidUpdate(prevProps, prevState, snapshot) {
+        this.unobserveResize();
+        this.observeResize();
+    }
+
     componentWillUnmount() {
-        window.removeEventListener('resize', this.onWindowResize);
+        this.unobserveResize();
         AppStore.off('clientUpdateCacheLoaded', this.onClientUpdateCacheLoaded);
         AppStore.off('clientUpdatePageWidth', this.onClientUpdatePageWidth);
         FilterStore.off('clientUpdateChatList', this.onClientUpdateChatList);
         FilterStore.off('updateChatFilters', this.onUpdateChatFilters);
+        LocalizationStore.off('clientUpdateLanguageChange', this.onClientUpdateLanguageChange);
     }
+
+    hasObserver = () => {
+        return 'ResizeObserver' in window;
+    };
+
+    observeResize() {
+        if (!this.hasObserver()) return;
+        const filters = this.filtersRef.current;
+        if (!filters) return;
+
+        const observer = new ResizeObserver(this.onWindowResize);
+        observer.observe(filters);
+
+        this.resizeObserver = { observer, filters }
+    }
+
+    unobserveResize() {
+        if (!this.hasObserver()) return;
+        if (!this.resizeObserver) return;
+
+        const { observer, filters } = this.resizeObserver;
+        if (!observer) return;
+        if (!filters) return;
+
+        observer.unobserve(filters);
+    }
+
+    onClientUpdateLanguageChange = update => {
+        if (!this.hasObserver()) this.setSelection(false);
+    };
 
     onClientUpdateCacheLoaded = update => {
         const { filters } = this.state;
@@ -65,12 +103,12 @@ class Filters extends React.Component {
         this.setState({
             filters: cachedFilters
         }, () => {
-            this.setSelection(false);
+            if (!this.hasObserver()) this.setSelection(false);
         });
     };
 
-    onWindowResize = event => {
-        this.setSelection(false);
+    onWindowResize = () => {
+        this.setSelection(true);
     };
 
     onClientUpdatePageWidth = update => {
@@ -78,36 +116,31 @@ class Filters extends React.Component {
         this.setState({
             isSmallWidth
         }, () => {
-            this.setSelection(false);
+            if (!this.hasObserver()) this.setSelection(false);
         });
     };
 
-    setSelection(transition = true) {
+    setSelection = (transition = true) => {
         const { chatList, filters, isSmallWidth } = this.state;
 
         const scroll = this.filtersRef.current;
+        const padding = 3;
 
         let item = null;
         let left = 9;
         if (chatList['@type'] === 'chatListMain') {
             const main = this.filterRef.get('chatListMain');
             if (main){
-                item = main;
-                left += isSmallWidth ? 0 : 7;
+                item = main.firstChild;
+                left = item.offsetLeft;
             }
         } else if (chatList['@type'] === 'chatListFilter') {
-            const main = this.filterRef.get('chatListMain');
-            if (main){
-                left += main.scrollWidth;
-            }
             for (let i = 0; i < filters.length; i++) {
                 const filter = this.filterRef.get('chatListFilter_id=' + filters[i].id);
                 if (filters[i].id === chatList.chat_filter_id) {
-                    item = filter;
-                    left += isSmallWidth ? 0 : 7;
+                    item = filter.firstChild;
+                    left = item.offsetLeft;
                     break;
-                } else {
-                    left += filter.scrollWidth;
                 }
             }
         }
@@ -116,7 +149,7 @@ class Filters extends React.Component {
         const filterSelection = this.filterSelectionRef.current;
         if (filterSelection) {
             const transitionStyle = transition ? 'transition: left 0.25s ease, width 0.25s ease' : null;
-            filterSelection.style.cssText = `left: ${left}px; width: ${item.scrollWidth - 14}px; ${transitionStyle}`;
+            filterSelection.style.cssText = `left: ${left - padding}px; width: ${item.scrollWidth + 2 * padding}px; ${transitionStyle}`;
         }
 
         if (item && transition){
@@ -143,7 +176,7 @@ class Filters extends React.Component {
 
             // item.scrollIntoView();
         }
-    }
+    };
 
     onUpdateChatFilters = update => {
         const { chatList } = this.state;
@@ -155,7 +188,7 @@ class Filters extends React.Component {
             if (chatList['@type'] === 'chatListFilter' && filters.findIndex(x => x.id === chatList.chat_filter_id) === -1) {
                 this.handleMainClick();
             } else {
-                this.setSelection();
+                if (!this.hasObserver()) this.setSelection();
             }
         });
     };
@@ -166,31 +199,20 @@ class Filters extends React.Component {
         this.setState({
             chatList
         }, () => {
-            this.setSelection();
+            if (!this.hasObserver()) this.setSelection();
         });
     };
 
     handleMainClick = event => {
         if (event && event.button !== 0) return;
 
-        TdLibController.clientUpdate({
-            '@type': 'clientUpdateChatList',
-            chatList: {
-                '@type': 'chatListMain'
-            }
-        });
+        openChatList({ '@type': 'chatListMain' });
     };
 
     handleFilterClick = (event, id) => {
         if (event && event.button !== 0) return;
 
-        TdLibController.clientUpdate({
-            '@type': 'clientUpdateChatList',
-            chatList: {
-                '@type': 'chatListFilter',
-                chat_filter_id: id
-            }
-        });
+        openChatList({ '@type': 'chatListFilter', chat_filter_id: id });
     };
 
     handleWheel = event => {
@@ -206,31 +228,32 @@ class Filters extends React.Component {
         const { t } = this.props;
         const { filters, chatList, isSmallWidth } = this.state;
 
-        // console.log('[cm] filters.render', filters);
-
         if (!filters) return null;
         if (!filters.length) return null;
 
         this.filterRef = new Map();
         return (
-            <div ref={this.filtersRef} className='filters' onWheel={this.handleWheel}>
-                <div
-                    ref={r => this.filterRef.set('chatListMain', r)}
-                    className={classNames('filter', { 'item-selected': chatList['@type'] === 'chatListMain'})}
-                    onMouseDown={this.handleMainClick}
-                    title={isSmallWidth ? t('FilterAllChats') : null}>
-                    {isSmallWidth ? getFirstLetter(t('FilterAllChats')) : t('FilterAllChats')}
-                </div>
-                {filters.map(x => (
+            <div className='tabs'>
+                <div className='tabs-bottom-border'/>
+                <div ref={this.filtersRef} className='filters' onWheel={this.handleWheel}>
                     <div
-                        key={x.id}
-                        ref={r => this.filterRef.set('chatListFilter_id=' + x.id, r)}
-                        className={classNames('filter', { 'item-selected': chatList.chat_filter_id === x.id})}
-                        onMouseDown={e => this.handleFilterClick(e, x.id)}
-                        title={isSmallWidth ? x.title : null}>
-                        {isSmallWidth ? getFirstLetter(x.title) : x.title}
-                    </div>))}
-                <div ref={this.filterSelectionRef} className='filter-selection'/>
+                        ref={r => this.filterRef.set('chatListMain', r)}
+                        className={classNames('filter', { 'item-selected': chatList['@type'] === 'chatListMain'})}
+                        onMouseDown={this.handleMainClick}
+                        title={isSmallWidth ? t('FilterAllChats') : null}>
+                        <span>{isSmallWidth ? getFirstLetter(t('FilterAllChats')) : t('FilterAllChats')}</span>
+                    </div>
+                    {filters.map(x => (
+                        <div
+                            key={x.id}
+                            ref={r => this.filterRef.set('chatListFilter_id=' + x.id, r)}
+                            className={classNames('filter', { 'item-selected': chatList.chat_filter_id === x.id})}
+                            onMouseDown={e => this.handleFilterClick(e, x.id)}
+                            title={isSmallWidth ? x.title : null}>
+                            <span>{isSmallWidth ? getFirstLetter(x.title) : x.title}</span>
+                        </div>))}
+                    <div ref={this.filterSelectionRef} className='filter-selection'/>
+                </div>
             </div>
         );
     }

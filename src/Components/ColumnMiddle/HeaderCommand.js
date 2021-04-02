@@ -12,6 +12,9 @@ import Button from '@material-ui/core/Button';
 import { clearSelection, deleteMessages, forwardMessages } from '../../Actions/Client';
 import MessageStore from '../../Stores/MessageStore';
 import './HeaderCommand.css';
+import AnimatedCounter from './AnimatedCounter';
+import { canBeReported } from '../../Utils/Chat';
+import { openReportChat } from '../../Actions/Chat';
 
 class HeaderCommand extends React.Component {
     handleCancel = () => {
@@ -26,6 +29,7 @@ class HeaderCommand extends React.Component {
             messageIds.push(messageId);
         }
 
+        clearSelection();
         deleteMessages(id, messageIds);
     };
 
@@ -37,7 +41,20 @@ class HeaderCommand extends React.Component {
             messageIds.push(messageId);
         }
 
+        clearSelection();
         forwardMessages(id, messageIds);
+    };
+
+    handleReport = () => {
+        let id;
+        const messageIds = [];
+        for (let { chatId, messageId } of MessageStore.selectedItems.values()) {
+            id = chatId;
+            messageIds.push(messageId);
+        }
+
+        clearSelection();
+        openReportChat(id, messageIds);
     };
 
     render() {
@@ -69,16 +86,30 @@ class HeaderCommand extends React.Component {
             }
         }
 
+        const items = Array.from(MessageStore.selectedItems.values());
+        const canReport = canBeReported(items.length > 0 ? items[0].chatId : 0);
+
         return (
             <div className='header-command'>
                 {canBeForwarded && (
                     <Button color='primary' className='header-command-button' onClick={this.handleForward}>
-                        {count <= 1 ? t('Forward') : `${t('Forward')} ${count}`}
+                        {t('Forward')}
+                        <span>&nbsp;</span>
+                        <AnimatedCounter counter={count}/>
                     </Button>
                 )}
                 {canBeDeleted && (
                     <Button color='primary' className='header-command-button' onClick={this.handleDelete}>
-                        {count <= 1 ? t('Delete') : `${t('Delete')} ${count}`}
+                        {t('Delete')}
+                        <span>&nbsp;</span>
+                        <AnimatedCounter counter={count}/>
+                    </Button>
+                )}
+                {canReport && (
+                    <Button color='primary' className='header-command-button' onClick={this.handleReport}>
+                        {t('ReportChat')}
+                        <span>&nbsp;</span>
+                        <AnimatedCounter counter={count}/>
                     </Button>
                 )}
                 <div className='header-command-space' />

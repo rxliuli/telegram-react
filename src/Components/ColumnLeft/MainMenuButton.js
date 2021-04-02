@@ -26,6 +26,7 @@ import SettingsIcon from '../../Assets/Icons/Settings';
 import UserIcon from '../../Assets/Icons/User';
 import { isAuthorizationReady } from '../../Utils/Common';
 import { openArchive, openChat, searchChat } from '../../Actions/Client';
+import { openSupportChat } from '../../Actions/Chat';
 import AppStore from '../../Stores/ApplicationStore';
 import CacheStore from '../../Stores/CacheStore';
 import UserStore from '../../Stores/UserStore';
@@ -151,8 +152,10 @@ class MainMenuButton extends React.Component {
         });
     };
 
-    handleHelp = event => {
+    handleHelp = async event => {
         this.handleMenuClose();
+
+        openSupportChat();
     };
 
     handleSearch = () => {

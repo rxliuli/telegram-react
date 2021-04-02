@@ -7,30 +7,46 @@
 
 import React from 'react';
 import PropTypes from 'prop-types';
+import { withTranslation } from 'react-i18next';
 import classNames from 'classnames';
-import IconButton from '@material-ui/core/IconButton';
 import CallIcon from '@material-ui/icons/Call';
-import { getCallTitle } from '../../../Utils/Media';
-import { getDurationString } from '../../../Utils/Common';
+import VideocamIcon from '@material-ui/icons/Videocam';
+import { getCallContent } from '../../../Utils/Message';
+import LStore from '../../../Stores/LocalizationStore';
+import MessageStore from '../../../Stores/MessageStore';
 import './Call.css';
 
 class Call extends React.Component {
     render() {
-        const { chatId, messageId, duration, openMedia, title, meta } = this.props;
+        const { chatId, messageId, call, openMedia, title, meta } = this.props;
+        if (!call) return null;
 
-        const callTitle = getCallTitle(chatId, messageId);
-        const durationString = getDurationString(Math.floor(duration || 0));
+        const message = MessageStore.get(chatId, messageId);
+        if (!message) return null;
+
+        const { duration, is_video, discard_reason } = call;
+        const { sender, content, is_outgoing } = message;
+
+        const callTitle = getCallContent(sender, content);
+        const durationString = duration > 0 ? ', ' + LStore.formatCallDuration(Math.floor(duration || 0)) : '';
 
         return (
-            <div className={classNames('document', { 'media-title': title })}>
-                <IconButton color='primary' aria-label='Call'>
-                    <CallIcon fontSize='large' />
-                </IconButton>
+            <div className={classNames('call', 'document', { 'media-title': title })} onClick={openMedia}>
+                {is_video ? (
+                    <VideocamIcon classes={{ root: 'call-button-root' }} />
+                    ) : (
+                    <CallIcon classes={{ root: 'call-button-root' }} />
+                )}
                 <div className='document-content'>
                     <div className='document-title'>{callTitle}</div>
                     <div className='document-action'>
-                        {durationString}
+                        <span className={classNames({
+                            'call-outgoing': is_outgoing,
+                            'call-incoming': !is_outgoing,
+                            'call-incoming-missed': !is_outgoing && discard_reason && discard_reason['@type'] === 'callDiscardReasonMissed'
+                        })}>&#x2794;</span>
                         {meta}
+                        {durationString}
                     </div>
                 </div>
             </div>
@@ -41,7 +57,8 @@ class Call extends React.Component {
 Call.propTypes = {
     chatId: PropTypes.number,
     messageId: PropTypes.number,
+    call: PropTypes.object,
     openMedia: PropTypes.func
 };
 
-export default Call;
+export default withTranslation()(Call);

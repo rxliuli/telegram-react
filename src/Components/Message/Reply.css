@@ -18,6 +18,7 @@
     padding: 2px 6px;
     max-width: 200px;
     margin: 0 9px;
+    align-self: flex-start;
 }
 
 .message-content:not(.message-bubble) .reply-border {
@@ -57,7 +58,7 @@
 
 .reply-content {
     font-size: 14px;
-    line-height: normal;
+    line-height: 19px;
     margin-left: 8px;
     flex-grow: 1;
     flex-shrink: 1;

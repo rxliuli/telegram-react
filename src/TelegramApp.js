@@ -26,13 +26,15 @@ import registerServiceWorker from './registerServiceWorker';
 import { isMobile } from './Utils/Common';
 import { loadData } from './Utils/Phone';
 import KeyboardManager, { KeyboardHandler } from './Components/Additional/KeyboardManager';
-import { openPinnedChat } from './Actions/Chat';
+import { openChatList, openPinnedChat } from './Actions/Chat';
 import { modalManager } from './Utils/Modal';
-import { editMessage, replyMessage, searchChat } from './Actions/Client';
-import { OPTIMIZATIONS_FIRST_START } from './Constants';
+import { clearSelection, editMessage, replyMessage, searchChat } from './Actions/Client';
+import { isSafari } from './Utils/Common';
+import { OPTIMIZATIONS_FIRST_START, STORAGE_REGISTER_KEY, STORAGE_REGISTER_TEST_KEY } from './Constants';
 import UserStore from './Stores/UserStore';
 import AppStore from './Stores/ApplicationStore';
 import AuthorizationStore from './Stores/AuthorizationStore';
+import FilterStore from './Stores/FilterStore';
 import MessageStore from './Stores/MessageStore';
 import TdLibController from './Controllers/TdLibController';
 import './TelegramApp.css';
@@ -45,6 +47,7 @@ class TelegramApp extends Component {
         super(props);
 
         console.log(`Start Telegram Web ${packageJson.version}`);
+        console.log('[auth] ctor', props.location);
 
         this.state = {
             prevAuthorizationState: AuthorizationStore.current,
@@ -67,35 +70,47 @@ class TelegramApp extends Component {
     }
 
     handleKeyDown = async event => {
-        const { altKey, ctrlKey, keyCode, key, metaKey, repeat, shiftKey } = event;
+        const { altKey, ctrlKey, keyCode, key, metaKey, repeat, shiftKey, isComposing } = event;
 
         this.keyMap.set(key, key);
 
+        const { chatList } = FilterStore;
         const { authorizationState, chatId } = AppStore;
         if (!authorizationState) return;
         if (authorizationState['@type'] !== 'authorizationStateReady') return;
         if (this.keyMap.size > 3) return;
 
+        if (modalManager.modals.length > 0) {
+            return;
+        }
+
+        if (event.isComposing) {
+            return;
+        }
+
         switch (key) {
             case 'Escape': {
-                if (!altKey && !ctrlKey && !metaKey && !shiftKey && !repeat && !modalManager.modals.length) {
+                if (!altKey && !ctrlKey && !metaKey && !shiftKey && !repeat) {
                     // console.log('[keydown] esc', this.editMessageId, this.replyMessageId);
                     if (this.editMessageId) {
                         editMessage(chatId, 0);
                         return;
-                    }
-                    else if (this.replyMessageId) {
+                    } else if (this.replyMessageId) {
                         replyMessage(chatId, 0);
                         return;
-                    }
-                    else if (!chatId) {
-                        // open search if no one dialog opened
-                        searchChat(0, null);
-
+                    } else if (MessageStore.selectedItems.size > 0) {
+                        clearSelection();
+                        return;
+                    } else if (chatId) {
+                        TdLibController.setChatId(0);
+                        return;
+                    } else if (chatList && chatList['@type'] !== 'chatListMain') {
+                        openChatList({ '@type': 'chatListMain' });
                         return;
                     }
 
-                    TdLibController.setChatId(0);
+                    // open search if no one dialog opened
+                    searchChat(0, null);
 
                     event.preventDefault();
                     event.stopPropagation();
@@ -103,7 +118,7 @@ class TelegramApp extends Component {
                 break;
             }
             case '0': {
-                if (altKey && ctrlKey && !metaKey && !shiftKey && !repeat && !modalManager.modals.length) {
+                if (altKey && ctrlKey && !metaKey && !shiftKey && !repeat) {
                     if (this.editMessageId) return;
                     if (this.replyMessageId) return;
 
@@ -126,7 +141,7 @@ class TelegramApp extends Component {
             case '3':
             case '4':
             case '5': {
-                if (altKey && ctrlKey && !metaKey && !shiftKey && !repeat && !modalManager.modals.length) {
+                if (altKey && ctrlKey && !metaKey && !shiftKey && !repeat) {
                     if (this.editMessageId) return;
                     if (this.replyMessageId) return;
 
@@ -140,9 +155,7 @@ class TelegramApp extends Component {
     };
 
     componentWillMount() {
-        const { location } = this.props;
-
-        TdLibController.init(location);
+        TdLibController.init();
     }
 
     componentDidMount() {
@@ -206,7 +219,9 @@ class TelegramApp extends Component {
             if (!this.checkServiceWorker) {
                 this.checkServiceWorker = true;
 
-                const register = localStorage.getItem('register');
+                const { useTestDC } = TdLibController.parameters;
+                const registerKey = useTestDC ? STORAGE_REGISTER_TEST_KEY : STORAGE_REGISTER_KEY;
+                const register = localStorage.getItem(registerKey);
                 if (!register) {
                     registerServiceWorker();
                 }
@@ -220,8 +235,18 @@ class TelegramApp extends Component {
 
     onUpdateAuthorizationState = update => {
         const { authorization_state: authorizationState } = update;
+        let { prevAuthorizationState } = this.state;
 
-        this.setState({ authorizationState });
+        if (authorizationState && (
+            authorizationState['@type'] === 'authorizationStateLoggingOut' ||
+            authorizationState['@type'] === 'authorizationStateClosed')) {
+            prevAuthorizationState = null;
+        }
+
+        this.setState({
+            authorizationState,
+            prevAuthorizationState
+        });
 
         if (!window.hasFocus) return;
         if (!authorizationState) return;
@@ -285,6 +310,7 @@ class TelegramApp extends Component {
         if (changePhone) {
             state = { '@type': 'authorizationStateWaitPhoneNumber' };
         } else if (!state ||
+            state['@type'] === 'authorizationStateClosed' ||
             state['@type'] === 'authorizationStateWaitEncryptionKey' ||
             state['@type'] === 'authorizationStateWaitTdlibParameters'
         ) {
@@ -394,6 +420,22 @@ window.history.pushState(null, null, window.location.href);
 window.onpopstate = function() {
     window.history.go(1);
 };
+
+async function unlockAudio() {
+    try {
+        const sound = new Audio('sounds/sound_a.mp3');
+        sound.autoplay = true;
+        sound.pause();
+    } finally {
+        document.body.removeEventListener('click', unlockAudio)
+        document.body.removeEventListener('touchstart', unlockAudio)
+    }
+}
+
+// if (isSafari()) {
+    document.body.addEventListener('click', unlockAudio);
+    document.body.addEventListener('touchstart', unlockAudio);
+// }
 
 const enhance = compose(
     withLanguage,

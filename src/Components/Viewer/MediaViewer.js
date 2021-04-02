@@ -40,6 +40,7 @@ import {
     canMessageBeDeleted,
     filterDuplicateMessages,
     isAnimationMessage,
+    isEmbedMessage,
     isMediaContent,
     isVideoMessage
 } from '../../Utils/Message';
@@ -49,6 +50,7 @@ import { PHOTO_BIG_SIZE, MEDIA_SLICE_LIMIT } from '../../Constants';
 import MessageStore from '../../Stores/MessageStore';
 import TdLibController from '../../Controllers/TdLibController';
 import './MediaViewer.css';
+import LStore from '../../Stores/LocalizationStore';
 
 class MediaViewer extends React.Component {
     constructor(props) {
@@ -139,20 +141,22 @@ class MediaViewer extends React.Component {
     }
 
     onKeyDown = event => {
-        event.stopPropagation();
-        event.preventDefault();
-
         const { chatId } = this.props;
         const { currentMessageId } = this.state;
+
+        if (modalManager.modals.length > 0) {
+            return;
+        }
+
+        if (event.isComposing) {
+            return;
+        }
 
         const fullscreenElement = document.fullscreenElement || document.mozFullScreenElement || document.webkitFullscreenElement;
 
         const { key } = event;
         switch (key) {
             case 'Escape': {
-                if (modalManager.modals.length > 0) {
-                    return;
-                }
 
                 this.handleClose();
                 event.stopPropagation();
@@ -756,6 +760,10 @@ class MediaViewer extends React.Component {
         }
     };
 
+    handleWrapperMouseDown = event => {
+        this.mouseDownTarget = event.currentTarget;
+    }
+
     handleWrapperClick = event => {
         const { mouseDownTarget } = this;
         this.mouseDownTarget = null;
@@ -764,10 +772,6 @@ class MediaViewer extends React.Component {
 
         this.handleClose();
     };
-
-    handleWrapperMouseDown = event => {
-        this.mouseDownTarget = event.currentTarget;
-    }
 
     render() {
         const { chatId, t } = this.props;
@@ -837,7 +841,9 @@ class MediaViewer extends React.Component {
 
         const fileId = file ? file.id : 0;
         let title = t('AttachPhoto');
-        if (isVideoMessage(chatId, currentMessageId)) {
+        if (isEmbedMessage(chatId, currentMessageId)) {
+            title = '';
+        } else if (isVideoMessage(chatId, currentMessageId)) {
             title = t('AttachVideo');
         } else if (isAnimationMessage(chatId, currentMessageId)) {
             title = t('AttachGif');
@@ -849,9 +855,9 @@ class MediaViewer extends React.Component {
                     <MediaInfo chatId={chatId} messageId={currentMessageId} />
                     <MediaViewerFooterText
                         title={title}
-                        subtitle={maxCount && index >= 0 ? `${maxCount - index} of ${maxCount}` : null}
+                        subtitle={maxCount > 1 && index >= 0 ? LStore.formatString('Of', maxCount - index, maxCount) : null}
                     />
-                    <MediaViewerDownloadButton title={t('Save')} fileId={fileId} onClick={this.handleSave} />
+                    <MediaViewerDownloadButton title={t('Save')} fileId={fileId} disabled={isEmbedMessage(chatId, currentMessageId)} onClick={this.handleSave} />
                     <MediaViewerFooterButton
                         title={t('Forward')}
                         disabled={!canBeForwarded}
@@ -887,6 +893,7 @@ class MediaViewer extends React.Component {
                         </MediaViewerButton>
                     </div>
                 </div>
+                <div className='media-viewer-footer'/>
                 {deleteConfirmation}
             </div>
         );

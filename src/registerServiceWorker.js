@@ -16,8 +16,16 @@
 // This link also includes instructions on opting out of this behavior.
 
 import { arrayBufferToBase64, isAuthorizationReady } from './Utils/Common';
-import { OPTIMIZATIONS_FIRST_START } from './Constants';
-import ApplicationStore from './Stores/ApplicationStore';
+import { showAlert } from './Actions/Client';
+import {
+    OPTIMIZATIONS_FIRST_START,
+    PLAYER_STREAMING_PRIORITY,
+    STORAGE_REGISTER_KEY,
+    STORAGE_REGISTER_TEST_KEY
+} from './Constants';
+import AppStore from './Stores/ApplicationStore';
+import FileStore from './Stores/FileStore';
+import LStore from './Stores/LocalizationStore';
 import NotificationStore from './Stores/NotificationStore';
 import TdLibController from './Controllers/TdLibController';
 
@@ -35,7 +43,9 @@ export default async function register() {
     console.log('[SW] Register');
 
     if (OPTIMIZATIONS_FIRST_START) {
-        localStorage.setItem('register', 'true');
+        const { useTestDC } = TdLibController.parameters;
+        const registerKey = useTestDC ? STORAGE_REGISTER_TEST_KEY : STORAGE_REGISTER_KEY;
+        localStorage.setItem(registerKey, 'true');
     }
 
     if ('serviceWorker' in navigator) {
@@ -79,6 +89,14 @@ async function registerValidSW(swUrl) {
                         console.log('[SW] New content is available; please refresh.');
 
                         TdLibController.clientUpdate({ '@type': 'clientUpdateNewContentAvailable' });
+                        showAlert({
+                            title: LStore.getString('NewVersionTitle'),
+                            message: LStore.getString('NewVersionText'),
+                            ok: LStore.getString('OK'),
+                            onResult: async () => {
+                                window.location.reload();
+                            }
+                        });
                     } else {
                         // At this point, everything has been precached.
                         // It's the perfect time to display a
@@ -109,7 +127,7 @@ export async function subscribeNotifications() {
         const auth_base64url = arrayBufferToBase64(pushSubscription.getKey('auth'));
 
         if (endpoint && p256dh_base64url && auth_base64url) {
-            const { authorizationState } = ApplicationStore;
+            const { authorizationState } = AppStore;
             if (isAuthorizationReady(authorizationState)) {
                 const deviceToken = {
                     '@type': 'deviceTokenWebPush',
@@ -171,54 +189,123 @@ export async function update() {
     }
 }
 
-export function setFileOptions(url, options) {
-    if ('serviceWorker' in navigator) {
+const requests = [];
+window.requests = requests;
 
-        console.log('[SW] setFileOptions ', navigator.serviceWorker, navigator.serviceWorker.controller);
-        navigator.serviceWorker.controller.postMessage({
-            '@type': 'file',
-            url,
-            options
-        });
-    }
-}
+async function processRequest(request) {
+    const { fileId, offset, limit, resolve, reject } = request;
 
-navigator.serviceWorker.onmessage = async (e) => {
-    // console.log('[stream] client.onmessage', e.data);
+    const file = FileStore.get(fileId);
+    try {
+        let filePart = null;
+        try {
+            if (file) {
+                const { local } = file;
+                if (local) {
+                    const { download_offset, downloaded_prefix_size } = local;
+                    // console.log('[cache] checkFile', fileId, [offset, limit], [download_offset, downloaded_prefix_size]);
+                    if (download_offset <= offset && offset + limit <= download_offset + downloaded_prefix_size) {
 
-    switch (e.data['@type']) {
-        case 'getFile': {
-            const { fileId, offset, limit, size } = e.data;
+                        // console.log('[cache] readExistingFile', fileId);
+                        filePart = await TdLibController.send({
+                            '@type': 'readFilePart',
+                            file_id: fileId,
+                            offset,
+                            count: limit
+                        });
+                    }
+                }
+            }
+        } catch (e) {
+            
+        }
 
-            const l = offset + limit < size ? limit : (size - offset)
-
+        if (!filePart) {
+            // console.log('[cache] downloadFile', fileId, [offset, limit]);
             await TdLibController.send({
                 '@type': 'downloadFile',
                 file_id: fileId,
-                priority: 1,
+                priority: PLAYER_STREAMING_PRIORITY,
                 offset,
-                limit: l,
+                limit,
                 synchronous: true
             });
 
-            const filePart = await TdLibController.send({
+            // console.log('[cache] readFilePart', fileId, [offset, limit]);
+            filePart = await TdLibController.send({
                 '@type': 'readFilePart',
                 file_id: fileId,
                 offset,
-                count: l
+                count: limit
             });
-
-            // const buffer = await getArrayBuffer(filePart.data);
-
-            // console.log('[stream] client.onmessage buffer', fileId, offset, limit, filePart.data);
-            navigator.serviceWorker.controller.postMessage({
-                '@type': 'getFileResult',
-                fileId,
-                offset,
-                limit,
-                data: filePart.data
-            });
-            break;
         }
+
+        const { data } = filePart;
+
+        resolve(data);
+    } catch (error) {
+        reject(error)
     }
-};
+}
+
+async function getFilePart(fileId, offset, limit) {
+    const promise = new Promise(async (resolve, reject) => {
+
+        requests.push({
+            fileId,
+            offset,
+            limit,
+            resolve,
+            reject
+        });
+
+        if (requests.length > 1) {
+            return;
+        }
+
+        while (requests.length > 0) {
+            const request = requests[requests.length - 1];
+
+            await processRequest(request);
+
+            const index = requests.indexOf(request);
+            requests.splice(index, 1);
+        }
+    });
+
+    return await promise;
+}
+
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.onmessage = async (e) => {
+        // console.log('[stream] client.onmessage', e.data);
+
+        switch (e.data['@type']) {
+            case 'getFile': {
+                const { fileId, offset, limit, start, end } = e.data;
+
+                try {
+                    const data = await getFilePart(fileId, offset, limit);
+
+                    navigator.serviceWorker.controller.postMessage({
+                        '@type': 'getFileResult',
+                        fileId,
+                        offset,
+                        limit,
+                        data
+                    });
+                } catch (error) {
+
+                    navigator.serviceWorker.controller.postMessage({
+                        '@type': 'getFileError',
+                        fileId,
+                        offset,
+                        limit,
+                        error
+                    });
+                }
+                break;
+            }
+        }
+    };
+}

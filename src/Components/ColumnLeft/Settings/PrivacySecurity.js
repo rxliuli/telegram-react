@@ -13,6 +13,7 @@ import IconButton from '@material-ui/core/IconButton';
 import ListItem from '@material-ui/core/ListItem';
 import ListItemIcon from '@material-ui/core/ListItemIcon';
 import ListItemText from '@material-ui/core/ListItemText';
+import CallOutlinedIcon from '@material-ui/icons/CallOutlined';
 import ActiveSessions from './ActiveSessions';
 import ArrowBackIcon from '../../../Assets/Icons/Back';
 import BlockedUsers from './BlockedUsers';
@@ -23,13 +24,20 @@ import SectionHeader from '../SectionHeader';
 import UserStore from '../../../Stores/UserStore';
 import TdLibController from '../../../Controllers/TdLibController';
 import './PrivacySecurity.css';
+import PrivacyCalls from './PrivacyCalls';
+import { CallOutlined } from '@material-ui/icons';
 
 class PrivacySecurity extends React.Component {
     state = {
         sessions: null,
+        openActiveSessions: false,
+
         users: null,
         openBlockedUsers: false,
-        openActiveSessions: false
+
+        allowCalls: null,
+        allowP2PCalls: null,
+        openCalls: false
     };
 
     componentDidMount() {
@@ -47,9 +55,9 @@ class PrivacySecurity extends React.Component {
         const { users } = this.state;
         if (!users) return;
 
-        const { total_count, user_ids } = users;
+        const { total_count, senders } = users;
         const { is_blocked } = user_full_info;
-        const prevIsBlocked = user_ids.indexOf(user_id) !== -1;
+        const prevIsBlocked = senders.findIndex(x => x.user_id === user_id) !== -1;
         if (is_blocked === prevIsBlocked) return;
 
         if (is_blocked) {
@@ -57,7 +65,7 @@ class PrivacySecurity extends React.Component {
                 users: {
                     ...users,
                     total_count: total_count + 1,
-                    user_ids: [user_id, ...user_ids]
+                    senders: [{ '@type': 'messageSenderUser', user_id }, ...senders]
                 }
             });
         } else {
@@ -65,22 +73,39 @@ class PrivacySecurity extends React.Component {
                 users: {
                     ...users,
                     total_count: total_count - 1,
-                    user_ids: user_ids.filter(x => x !== user_id)
+                    senders: senders.filter(x => x.user_id !== user_id)
                 }
             });
         }
     };
 
     async loadContent() {
-        TdLibController.send({
+        const promises = [];
+        promises.push(TdLibController.send({
             '@type': 'getActiveSessions'
-        }).then(sessions => this.setState({ sessions }));
-
-        TdLibController.send({
-            '@type': 'getBlockedUsers',
+        }).catch(() => null));
+        promises.push(TdLibController.send({
+            '@type': 'getBlockedMessageSenders',
             offset: 0,
             limit: 100
-        }).then(users => this.setState({ users }));
+        }).catch(() => null));
+        promises.push(TdLibController.send({
+            '@type': 'getUserPrivacySettingRules',
+            setting: { '@type': 'userPrivacySettingAllowCalls' }
+        }).catch(() => null));
+        promises.push(TdLibController.send({
+            '@type': 'getUserPrivacySettingRules',
+            setting: { '@type': 'userPrivacySettingAllowPeerToPeerCalls' }
+        }).catch(() => null));
+
+        const [ sessions, users, allowCalls, allowP2PCalls ] = await Promise.all(promises);
+
+        this.setState({
+            sessions,
+            users,
+            allowCalls,
+            allowP2PCalls
+        });
     }
 
     openActiveSessions = () => {
@@ -111,9 +136,28 @@ class PrivacySecurity extends React.Component {
         });
     };
 
+    openCalls = () => {
+        const { allowCalls, allowP2PCalls } = this.state;
+        if (!allowCalls || !allowP2PCalls) return;
+
+        this.setState({
+            openCalls: true
+        });
+    };
+
+    closeCalls = () => {
+        this.setState({
+            openCalls: false
+        });
+    };
+
     render() {
         const { t, onClose } = this.props;
-        const { openBlockedUsers, users, openActiveSessions, sessions } = this.state;
+        const {
+            openBlockedUsers, users,
+            openActiveSessions, sessions,
+            openCalls, allowCalls, allowP2PCalls
+        } = this.state;
 
         const sessionsCount =
             sessions && sessions.sessions.length > 0
@@ -150,7 +194,6 @@ class PrivacySecurity extends React.Component {
                                 <RemoveMemberIcon />
                             </ListItemIcon>
                             <ListItemText
-                                id='label-2'
                                 className='settings-list-item-text'
                                 primary={t('BlockedUsers')}
                                 secondary={usersCount}
@@ -165,58 +208,74 @@ class PrivacySecurity extends React.Component {
                                 <DeviceIcon />
                             </ListItemIcon>
                             <ListItemText
-                                id='label-2'
                                 className='settings-list-item-text'
                                 primary={t('SessionsTitle')}
                                 secondary={sessionsCount}
                             />
                         </ListItem>
-                    </div>
-                    <div className='sidebar-page-section-divider' />
-                    <div className='sidebar-page-section'>
-                        <SectionHeader>{t('PrivacyTitle')}</SectionHeader>
-                        <ListItem className='settings-list-item2' role={undefined} button>
+                        <ListItem
+                            className='settings-list-item2'
+                            role={undefined}
+                            button
+                            onClick={this.openCalls}>
+                            <ListItemIcon className='settings-list-item-icon'>
+                                <CallOutlinedIcon />
+                            </ListItemIcon>
                             <ListItemText
-                                className='settings-list-item-text2'
-                                primary={t('PrivacyPhoneTitle')}
-                                secondary={t('LastSeenContacts')}
-                            />
-                        </ListItem>
-                        <ListItem className='settings-list-item2' role={undefined} button>
-                            <ListItemText
-                                className='settings-list-item-text2'
-                                primary={t('LastSeenTitle')}
-                                secondary={t('LastSeenEverybody')}
-                            />
-                        </ListItem>
-                        <ListItem className='settings-list-item2' role={undefined} button>
-                            <ListItemText
-                                className='settings-list-item-text2'
-                                primary={t('PrivacyProfilePhotoTitle')}
-                                secondary={t('LastSeenEverybody')}
-                            />
-                        </ListItem>
-                        <ListItem className='settings-list-item2' role={undefined} button>
-                            <ListItemText
-                                className='settings-list-item-text2'
-                                primary={t('PrivacyForwardsTitle')}
-                                secondary={t('LastSeenEverybody')}
-                            />
-                        </ListItem>
-                        <ListItem className='settings-list-item2' role={undefined} button>
-                            <ListItemText
-                                className='settings-list-item-text2'
-                                primary={t('WhoCanAddMe')}
-                                secondary={t('LastSeenEverybody')}
+                                className='settings-list-item-text'
+                                primary={t('Calls')}
+                                secondary={''}
                             />
                         </ListItem>
                     </div>
+                    {/*<div className='sidebar-page-section-divider' />*/}
+                    {/*<div className='sidebar-page-section'>*/}
+                    {/*    <SectionHeader>{t('PrivacyTitle')}</SectionHeader>*/}
+                    {/*    <ListItem className='settings-list-item2' role={undefined} button>*/}
+                    {/*        <ListItemText*/}
+                    {/*            className='settings-list-item-text2'*/}
+                    {/*            primary={t('PrivacyPhoneTitle')}*/}
+                    {/*            secondary={t('LastSeenContacts')}*/}
+                    {/*        />*/}
+                    {/*    </ListItem>*/}
+                    {/*    <ListItem className='settings-list-item2' role={undefined} button>*/}
+                    {/*        <ListItemText*/}
+                    {/*            className='settings-list-item-text2'*/}
+                    {/*            primary={t('LastSeenTitle')}*/}
+                    {/*            secondary={t('LastSeenEverybody')}*/}
+                    {/*        />*/}
+                    {/*    </ListItem>*/}
+                    {/*    <ListItem className='settings-list-item2' role={undefined} button>*/}
+                    {/*        <ListItemText*/}
+                    {/*            className='settings-list-item-text2'*/}
+                    {/*            primary={t('PrivacyProfilePhotoTitle')}*/}
+                    {/*            secondary={t('LastSeenEverybody')}*/}
+                    {/*        />*/}
+                    {/*    </ListItem>*/}
+                    {/*    <ListItem className='settings-list-item2' role={undefined} button>*/}
+                    {/*        <ListItemText*/}
+                    {/*            className='settings-list-item-text2'*/}
+                    {/*            primary={t('PrivacyForwardsTitle')}*/}
+                    {/*            secondary={t('LastSeenEverybody')}*/}
+                    {/*        />*/}
+                    {/*    </ListItem>*/}
+                    {/*    <ListItem className='settings-list-item2' role={undefined} button>*/}
+                    {/*        <ListItemText*/}
+                    {/*            className='settings-list-item-text2'*/}
+                    {/*            primary={t('WhoCanAddMe')}*/}
+                    {/*            secondary={t('LastSeenEverybody')}*/}
+                    {/*        />*/}
+                    {/*    </ListItem>*/}
+                    {/*</div>*/}
                 </div>
                 <SidebarPage open={openBlockedUsers} onClose={this.closeBlockedUsers}>
                     <BlockedUsers users={users} />
                 </SidebarPage>
                 <SidebarPage open={openActiveSessions} onClose={this.closeActiveSessions}>
                     <ActiveSessions sessions={sessions} />
+                </SidebarPage>
+                <SidebarPage open={openCalls} onClose={this.closeCalls}>
+                    <PrivacyCalls allowCalls={allowCalls} allowP2PCalls={allowP2PCalls} />
                 </SidebarPage>
             </>
         );
